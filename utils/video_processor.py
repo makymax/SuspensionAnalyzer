@@ -61,7 +61,7 @@ class VideoProcessor:
     
     def detect_dots(self, frame: np.ndarray) -> List[Tuple[int, int]]:
         """
-        Detect black dots in a frame.
+        Detect red and green dots in a frame.
         
         Args:
             frame: Input video frame
@@ -69,14 +69,31 @@ class VideoProcessor:
         Returns:
             List of (x, y) coordinates of detected dots
         """
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Convert to HSV color space for better color detection
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         
-        # Apply threshold to get binary image (black dots will be white)
-        _, binary = cv2.threshold(gray, self.threshold, 255, cv2.THRESH_BINARY_INV)
+        # Define color ranges for red and green
+        # Red is tricky in HSV as it wraps around 0/180, so we need two ranges
+        lower_red1 = np.array([0, 100, 100])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([160, 100, 100])
+        upper_red2 = np.array([180, 255, 255])
+        
+        lower_green = np.array([40, 100, 100])
+        upper_green = np.array([80, 255, 255])
+        
+        # Create masks for each color
+        red_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+        red_mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+        red_mask = cv2.bitwise_or(red_mask1, red_mask2)
+        
+        green_mask = cv2.inRange(hsv, lower_green, upper_green)
+        
+        # Combine masks to get all dots
+        combined_mask = cv2.bitwise_or(red_mask, green_mask)
         
         # Find contours
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         dots = []
         for contour in contours:

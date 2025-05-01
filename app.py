@@ -52,9 +52,9 @@ if st.session_state.page == 'home':
         For best results, follow these guidelines:
         
         1. **Dot Placement**:
-           - Place two black circular dots (approx. 1-2 cm in diameter) on the fork or shock
+           - Place one red and one green circular dot (approx. 1-2 cm in diameter) on the fork or shock
            - One dot at the top (fixed part) and one at the bottom (moving part)
-           - Ensure dots have high contrast against background
+           - Ensure dots have good color contrast against the background
         
         2. **Camera Setup**:
            - Position camera perpendicular to the suspension components
@@ -289,6 +289,10 @@ with st.expander("Advanced Processing Options"):
         sample_rate = st.slider("Analysis sample rate (frames)", 1, 10, 3, 
                              help="Analyze every Nth frame. Higher values speed up processing but reduce precision.")
 
+# Set uploaded_file to None initially to avoid NameError
+if 'uploaded_file' not in locals():
+    uploaded_file = None
+
 # Process video if uploaded
 if uploaded_file is not None:
     # Create a temporary file to store the uploaded video
@@ -337,7 +341,7 @@ if uploaded_file is not None:
         
         # Check if tracking was successful
         if suspension_data is None or len(suspension_data) < 10:
-            st.error("Dot tracking failed. Please ensure your video has two distinct black dots visible throughout the clip.")
+            st.error("Dot tracking failed. Please ensure your video has one red and one green dot visible throughout the clip.")
             if os.path.exists(video_path):
                 os.unlink(video_path)
             st.stop()
