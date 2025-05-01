@@ -128,8 +128,145 @@ elif st.session_state.page == 'analysis history':
 
 # Initialize session loading
 if 'load_session_id' in st.session_state and st.session_state.page == 'home':
-    st.info(f"Loading analysis session {st.session_state.load_session_id}...")
-    # TODO: Implement loading session data from the database
+    session_id = st.session_state.load_session_id
+    st.info(f"Loading analysis session {session_id}...")
+    
+    try:
+        # Load session data from database
+        session_data = get_analysis_session_by_id(session_id)
+        
+        if not session_data:
+            st.error(f"Session {session_id} not found or could not be loaded.")
+        else:
+            # Display loaded session information
+            st.subheader(f"Loaded Analysis: {session_data['session']['session_name']}")
+            
+            # Display session metadata
+            info_cols = st.columns(3)
+            info_cols[0].info(f"Motorcycle: {session_data['session']['motorcycle_info'] or 'Not specified'}")
+            info_cols[1].info(f"Date: {session_data['session']['created_at'].strftime('%Y-%m-%d %H:%M') if isinstance(session_data['session']['created_at'], datetime.datetime) else session_data['session']['created_at']}")
+            info_cols[2].info(f"Video: {session_data['session']['video_filename'] or 'Unknown'}")
+            
+            # Convert data points to DataFrame
+            df = pd.DataFrame(session_data['data_points'])
+            
+            # Display metrics
+            metrics = session_data['metrics']
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("Avg. Travel", f"{metrics.get('avg_travel', 0):.2f} mm")
+            metric_cols[1].metric("Max Travel", f"{metrics.get('max_travel', 0):.2f} mm")
+            metric_cols[2].metric("Avg. Compression Speed", f"{metrics.get('avg_compression_speed', 0):.2f} mm/s")
+            metric_cols[3].metric("Avg. Rebound Speed", f"{metrics.get('avg_rebound_speed', 0):.2f} mm/s")
+            
+            # Display suspension movement chart
+            st.subheader("Suspension Movement Over Time")
+            
+            fig = px.line(
+                df, 
+                x='time', 
+                y='distance', 
+                title='Suspension Travel vs Time',
+                labels={'time': 'Time (seconds)', 'distance': 'Suspension Travel (mm)'}
+            )
+            fig.update_layout(
+                xaxis=dict(showgrid=True),
+                yaxis=dict(showgrid=True),
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Display compression/rebound speeds
+            st.subheader("Compression/Rebound Analysis")
+            
+            # Create two charts side by side
+            col1, col2 = st.columns(2)
+            
+            # Compression/Rebound Speed Distribution
+            with col1:
+                # Filter for compression (negative velocities) and rebound (positive velocities)
+                compression_speeds = df['velocity'][df['velocity'] < 0].abs()
+                rebound_speeds = df['velocity'][df['velocity'] > 0]
+                
+                # Create Histogram for speeds
+                fig_hist = go.Figure()
+                
+                fig_hist.add_trace(go.Histogram(
+                    x=compression_speeds,
+                    name='Compression',
+                    marker_color='red',
+                    opacity=0.7,
+                    nbinsx=20
+                ))
+                
+                fig_hist.add_trace(go.Histogram(
+                    x=rebound_speeds,
+                    name='Rebound',
+                    marker_color='blue',
+                    opacity=0.7,
+                    nbinsx=20
+                ))
+                
+                fig_hist.update_layout(
+                    title='Speed Distribution',
+                    xaxis_title='Speed (mm/s)',
+                    yaxis_title='Count',
+                    barmode='overlay',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                
+                st.plotly_chart(fig_hist, use_container_width=True)
+            
+            # Velocity vs Position
+            with col2:
+                fig_vel = px.scatter(
+                    df, 
+                    x='distance', 
+                    y='velocity',
+                    color_discrete_sequence=['green'],
+                    opacity=0.6,
+                    title='Velocity vs Position',
+                    labels={'distance': 'Suspension Travel (mm)', 'velocity': 'Velocity (mm/s)'}
+                )
+                
+                fig_vel.add_hline(y=0, line_dash="dash", line_color="gray")
+                fig_vel.update_layout(
+                    xaxis=dict(showgrid=True),
+                    yaxis=dict(showgrid=True)
+                )
+                
+                st.plotly_chart(fig_vel, use_container_width=True)
+            
+            # Show detailed data table
+            with st.expander("View Detailed Data"):
+                st.dataframe(df)
+                
+                # Download link for the data
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    "Download CSV",
+                    csv,
+                    "suspension_data.csv",
+                    "text/csv",
+                    key='download-csv-loaded'
+                )
+            
+            # Display recommendations
+            st.subheader("Suspension Recommendations")
+            
+            for component, rec in session_data['recommendations'].items():
+                with st.expander(f"{component} Setting Recommendations"):
+                    st.markdown(f"**Current Performance Analysis**: {rec['analysis']}")
+                    st.markdown(f"**Recommendation**: {rec['recommendation']}")
+                    st.markdown(f"**Expected Improvement**: {rec['improvement']}")
+                    
+            # Clear the loaded session after displaying
+            if st.button("Clear Loaded Session"):
+                del st.session_state.load_session_id
+                st.rerun()
+                
+    except Exception as e:
+        st.error(f"Error loading session: {str(e)}")
+        st.button("Clear Error", on_click=lambda: setattr(st.session_state, 'load_session_id', None))
 
 # Processing parameters
 with st.expander("Advanced Processing Options"):
@@ -325,6 +462,38 @@ if uploaded_file is not None:
                 st.markdown(f"**Current Performance Analysis**: {rec['analysis']}")
                 st.markdown(f"**Recommendation**: {rec['recommendation']}")
                 st.markdown(f"**Expected Improvement**: {rec['improvement']}")
+        
+        # Save analysis to database section
+        st.subheader("Save Analysis")
+        save_col1, save_col2 = st.columns([3, 1])
+        
+        with save_col1:
+            session_name = st.text_input(
+                "Session Name", 
+                value=f"Suspension Analysis {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                key="session_name"
+            )
+            
+        with save_col2:
+            if st.button("Save to Database", type="primary", key="save_btn"):
+                try:
+                    # Save to database
+                    session_id = save_analysis_session(
+                        session_name=session_name,
+                        motorcycle_info=motorcycle_info,
+                        video_filename=uploaded_file.name if uploaded_file else None,
+                        video_info=video_info,
+                        analysis_results=analysis_results,
+                        suspension_data=suspension_data,
+                        recommendations=recommendations
+                    )
+                    
+                    if session_id:
+                        st.success(f"Analysis saved to database with ID: {session_id}")
+                    else:
+                        st.error("Failed to save analysis to database.")
+                except Exception as e:
+                    st.error(f"Error saving to database: {str(e)}")
         
         # Clean up the temporary file
         if os.path.exists(video_path):
