@@ -113,12 +113,14 @@ class VideoProcessor:
         return []
     
     def process_video(self, video_path: str, 
+                      initial_distance_mm: float = 100.0,
                       progress_callback: Optional[Callable[[float], None]] = None) -> Tuple[List[Dict[str, float]], List[Tuple[np.ndarray, int]]]:
         """
         Process the video to track suspension movement.
         
         Args:
             video_path: Path to the video file
+            initial_distance_mm: Actual distance between dots in mm for calibration
             progress_callback: Callback function to report progress (0.0 to 1.0)
             
         Returns:
@@ -163,9 +165,8 @@ class VideoProcessor:
         # Calculate initial distance for calibration
         initial_distance_px = np.sqrt((dots[0][0] - dots[1][0])**2 + (dots[0][1] - dots[1][1])**2)
         
-        # Assume initial distance is 100mm and calculate pixel to mm ratio
-        assumed_initial_mm = 100.0
-        self.pixel_to_mm_ratio = assumed_initial_mm / initial_distance_px
+        # Use the provided initial distance for calibration
+        self.pixel_to_mm_ratio = initial_distance_mm / initial_distance_px
         
         # Initialize previous positions and time
         prev_dots = dots

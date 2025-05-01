@@ -275,6 +275,14 @@ with st.expander("Advanced Processing Options"):
     with col1:
         min_dot_size = st.slider("Minimum dot size (pixels)", 3, 20, 5)
         max_dot_size = st.slider("Maximum dot size (pixels)", min_dot_size + 1, 50, 20)
+        initial_distance = st.number_input(
+            "Initial distance between dots (mm)", 
+            min_value=10.0, 
+            max_value=1000.0, 
+            value=100.0,
+            step=1.0,
+            help="The actual measured distance between the dots in the first frame (mm). This is used for accurate calibration."
+        )
         
     with col2:
         threshold_value = st.slider("Dot detection threshold", 0, 255, 100)
@@ -322,7 +330,8 @@ if uploaded_file is not None:
         
         # Process the video with progress updates
         suspension_data, sample_frames = video_processor.process_video(
-            video_path, 
+            video_path,
+            initial_distance_mm=initial_distance,
             progress_callback=lambda p: progress_bar.progress(p)
         )
         
@@ -347,7 +356,7 @@ if uploaded_file is not None:
         sample_cols = st.columns(min(len(sample_frames), 3))
         for i, (frame, frame_num) in enumerate(sample_frames[:3]):
             pil_image = Image.fromarray(frame)
-            sample_cols[i].image(pil_image, caption=f"Frame #{frame_num}", use_column_width=True)
+            sample_cols[i].image(pil_image, caption=f"Frame #{frame_num}", use_container_width=True)
         
         # Analyze the suspension data
         st.subheader("Suspension Analysis")
