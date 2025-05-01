@@ -7,10 +7,13 @@ import os
 import tempfile
 from PIL import Image
 import time
+import datetime
 
 from utils.video_processor import VideoProcessor
 from utils.data_analyzer import analyze_suspension_data
 from utils.recommendations import get_suspension_recommendations
+from utils.database import (save_analysis_session, get_analysis_sessions, 
+                           get_analysis_session_by_id, delete_analysis_session)
 
 # Set page configuration
 st.set_page_config(
@@ -28,37 +31,105 @@ Upload a video showing your motorcycle's suspension in action, and get detailed 
 visualizations, and recommendations for optimal suspension settings.
 """)
 
-# Instructions for optimal video recording
-with st.expander("📋 Instructions for optimal video recording"):
-    st.markdown("""
-    ### Recording Instructions
-    
-    For best results, follow these guidelines:
-    
-    1. **Dot Placement**:
-       - Place two black circular dots (approx. 1-2 cm in diameter) on the fork or shock
-       - One dot at the top (fixed part) and one at the bottom (moving part)
-       - Ensure dots have high contrast against background
-    
-    2. **Camera Setup**:
-       - Position camera perpendicular to the suspension components
-       - Maintain fixed camera position throughout recording
-       - Avoid shadows or changing lighting conditions
-       - Record at 30fps or higher if possible
-    
-    3. **Recording Conditions**:
-       - Record during typical riding conditions
-       - Include footage of compression and rebound movements
-       - 10-30 seconds of footage is usually sufficient
-    
-    4. **Video Format**:
-       - MP4, AVI, or MOV formats work best
-       - Resolution of 720p or higher recommended
-    """)
+# Initialize session state for page navigation
+if 'page' not in st.session_state:
+    st.session_state.page = 'home'
 
-# File uploader for video
-st.subheader("Upload Video")
-uploaded_file = st.file_uploader("Choose a video file", type=["mp4", "avi", "mov", "mkv"])
+# Sidebar for navigation
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Go to", ["Home", "Analysis History"], key="nav_radio")
+
+# Set the current page based on sidebar selection
+st.session_state.page = page.lower()
+
+# Only show main content if we're on the home page
+if st.session_state.page == 'home':
+    # Instructions for optimal video recording
+    with st.expander("📋 Instructions for optimal video recording"):
+        st.markdown("""
+        ### Recording Instructions
+        
+        For best results, follow these guidelines:
+        
+        1. **Dot Placement**:
+           - Place two black circular dots (approx. 1-2 cm in diameter) on the fork or shock
+           - One dot at the top (fixed part) and one at the bottom (moving part)
+           - Ensure dots have high contrast against background
+        
+        2. **Camera Setup**:
+           - Position camera perpendicular to the suspension components
+           - Maintain fixed camera position throughout recording
+           - Avoid shadows or changing lighting conditions
+           - Record at 30fps or higher if possible
+        
+        3. **Recording Conditions**:
+           - Record during typical riding conditions
+           - Include footage of compression and rebound movements
+           - 10-30 seconds of footage is usually sufficient
+        
+        4. **Video Format**:
+           - MP4, AVI, or MOV formats work best
+           - Resolution of 720p or higher recommended
+        """)
+
+    # File uploader for video
+    st.subheader("Upload Video")
+    uploaded_file = st.file_uploader("Choose a video file", type=["mp4", "avi", "mov", "mkv"])
+    
+    # Add motorcycle info input for database storage
+    motorcycle_info = st.text_input("Motorcycle Information (optional)", 
+                                 placeholder="e.g., 2023 Honda CBR650R, stock suspension")
+elif st.session_state.page == 'analysis history':
+    st.header("Analysis History")
+    st.write("View and load previous suspension analysis sessions.")
+    
+    # Fetch all analysis sessions from the database
+    try:
+        sessions = get_analysis_sessions()
+        
+        if not sessions:
+            st.info("No analysis sessions found. Run an analysis to save it to the database.")
+        else:
+            # Display sessions in a table
+            session_df = pd.DataFrame(sessions)
+            # Format the created_at date
+            session_df['created_at'] = pd.to_datetime(session_df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+            session_df.columns = ['ID', 'Session Name', 'Motorcycle', 'Date', 'Video Filename']
+            
+            st.dataframe(session_df)
+            
+            # Select a session to view
+            selected_id = st.selectbox(
+                "Select a session to view:", 
+                options=[session['id'] for session in sessions],
+                format_func=lambda x: next((s['session_name'] for s in sessions if s['id'] == x), str(x))
+            )
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Load Selected Session"):
+                    # Set session data to be loaded
+                    st.session_state.load_session_id = selected_id
+                    st.session_state.page = 'home'  # Navigate back to home
+                    st.rerun()
+            
+            with col2:
+                if st.button("Delete Selected Session", type="secondary"):
+                    if delete_analysis_session(selected_id):
+                        st.success("Session deleted successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete session.")
+    
+    except Exception as e:
+        st.error(f"Error accessing analysis history: {str(e)}")
+        st.info("Make sure the database is properly configured.")
+
+# Initialize session loading
+if 'load_session_id' in st.session_state and st.session_state.page == 'home':
+    st.info(f"Loading analysis session {st.session_state.load_session_id}...")
+    # TODO: Implement loading session data from the database
 
 # Processing parameters
 with st.expander("Advanced Processing Options"):
