@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import os
 import tempfile
+import cv2
 from PIL import Image
 import time
 import datetime
@@ -329,15 +330,85 @@ if uploaded_file is not None:
         cols[2].metric("Resolution", f"{video_info['width']}x{video_info['height']}")
         cols[3].metric("Total Frames", f"{video_info['frame_count']}")
         
-        # Track the dots in the video
-        status_text.text("Tracking suspension movement...")
+        # Allow manual selection of dots in the first frame
+        status_text.text("Loading first frame for manual dot selection...")
         
-        # Process the video with progress updates
-        suspension_data, sample_frames = video_processor.process_video(
-            video_path,
-            initial_distance_mm=initial_distance,
-            progress_callback=lambda p: progress_bar.progress(p)
-        )
+        # Get the first frame of the video
+        cap = cv2.VideoCapture(video_path)
+        ret, first_frame = cap.read()
+        cap.release()
+        
+        if not ret:
+            st.error("Could not read the first frame of the video.")
+            if os.path.exists(video_path):
+                os.unlink(video_path)
+            st.stop()
+        
+        # Convert the frame from BGR to RGB for display
+        first_frame_rgb = cv2.cvtColor(first_frame, cv2.COLOR_BGR2RGB)
+        
+        # Display the frame for dot selection
+        st.subheader("Manual Dot Selection")
+        st.write("Select two tracking points in the image below:")
+        st.write("1. The **top** (fixed part) dot should be selected first")
+        st.write("2. The **bottom** (moving part) dot should be selected second")
+        
+        # Create columns for the image and instructions
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Display the first frame
+            st.image(first_frame_rgb, channels="RGB", use_column_width=True)
+            
+        with col2:
+            st.write("**Instructions:**")
+            st.write("• Click on the red marker")
+            st.write("• Click on the green marker")
+            st.write("• Ensure the dots are clearly visible")
+            
+        # Get manual coordinates
+        st.write("Enter the coordinates of the two dots:")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            dot1_x = st.number_input("Top Dot X-coordinate", min_value=0, max_value=first_frame.shape[1]-1, step=1, value=first_frame.shape[1]//4)
+            dot1_y = st.number_input("Top Dot Y-coordinate", min_value=0, max_value=first_frame.shape[0]-1, step=1, value=first_frame.shape[0]//3)
+        
+        with col2:
+            dot2_x = st.number_input("Bottom Dot X-coordinate", min_value=0, max_value=first_frame.shape[1]-1, step=1, value=first_frame.shape[1]//4)
+            dot2_y = st.number_input("Bottom Dot Y-coordinate", min_value=0, max_value=first_frame.shape[0]-1, step=1, value=2*first_frame.shape[0]//3)
+        
+        # Display the frame with the selected dots for confirmation
+        confirmation_frame = first_frame_rgb.copy()
+        
+        # Draw the selected dots
+        cv2.circle(confirmation_frame, (dot1_x, dot1_y), 5, (0, 255, 0), -1)  # Red dot in RGB
+        cv2.circle(confirmation_frame, (dot2_x, dot2_y), 5, (255, 0, 0), -1)  # Green dot in RGB
+        
+        # Draw line connecting dots
+        cv2.line(confirmation_frame, (dot1_x, dot1_y), (dot2_x, dot2_y), (255, 255, 0), 2)
+        
+        st.subheader("Confirmation")
+        st.write("Here are the dots you've selected:")
+        st.image(confirmation_frame, channels="RGB", use_column_width=True)
+        
+        # Confirm and proceed
+        if st.button("Confirm and Process Video"):
+            manual_dots = [(dot1_x, dot1_y), (dot2_x, dot2_y)]
+            
+            # Track the dots in the video
+            status_text.text("Tracking suspension movement...")
+            
+            # Process the video with progress updates
+            suspension_data, sample_frames = video_processor.process_video(
+                video_path,
+                initial_distance_mm=initial_distance,
+                manual_dots=manual_dots,
+                progress_callback=lambda p: progress_bar.progress(p)
+            )
+        else:
+            st.warning("Please confirm your dot selection to process the video.")
+            st.stop()
         
         # Check if tracking was successful
         if suspension_data is None or len(suspension_data) < 10:

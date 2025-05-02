@@ -213,6 +213,7 @@ class VideoProcessor:
     
     def process_video(self, video_path: str, 
                       initial_distance_mm: float = 100.0,
+                      manual_dots: Optional[List[Tuple[int, int]]] = None,
                       progress_callback: Optional[Callable[[float], None]] = None) -> Tuple[List[Dict[str, float]], List[Tuple[np.ndarray, int]]]:
         """
         Process the video to track suspension movement.
@@ -249,13 +250,17 @@ class VideoProcessor:
             cap.release()
             return [], []
         
-        # Detect dots in the first frame
-        dots = self.detect_dots(frame)
-        
-        # Need at least 2 dots to track
-        if len(dots) < 2:
-            cap.release()
-            return [], []
+        # Use manual dots if provided, otherwise detect automatically
+        if manual_dots and len(manual_dots) >= 2:
+            dots = manual_dots[:2]  # Use only the first two dots if more were provided
+        else:
+            # Try to automatically detect dots in the first frame
+            dots = self.detect_dots(frame)
+            
+            # Need at least 2 dots to track
+            if len(dots) < 2:
+                cap.release()
+                return [], []
         
         # Sort dots by y-coordinate (top dot first, bottom dot second)
         dots.sort(key=lambda p: p[1])
