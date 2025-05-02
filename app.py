@@ -348,49 +348,44 @@ if uploaded_file is not None:
         first_frame_rgb = cv2.cvtColor(first_frame, cv2.COLOR_BGR2RGB)
         
         # Display the frame for dot selection
-        st.subheader("Manual Dot Selection")
-        st.write("Select two tracking points in the image below:")
-        st.write("1. The **top** (fixed part) dot should be selected first")
-        st.write("2. The **bottom** (moving part) dot should be selected second")
+        st.subheader("Manual Marker Selection")
+        st.write("Use the sliders to position the markers precisely on the red and green squares:")
         
-        # Create columns for the image and instructions
-        col1, col2 = st.columns([3, 1])
+        # Display the first frame
+        st.image(first_frame_rgb, channels="RGB", use_container_width=True)
         
-        with col1:
-            # Display the first frame
-            st.image(first_frame_rgb, channels="RGB", use_column_width=True)
-            
-        with col2:
-            st.write("**Instructions:**")
-            st.write("• Click on the red marker")
-            st.write("• Click on the green marker")
-            st.write("• Ensure the dots are clearly visible")
-            
-        # Get manual coordinates
-        st.write("Enter the coordinates of the two dots:")
+        # Create containers for the top and bottom marker selection
+        st.write("### Top Marker (fixed part)")
+        top_col1, top_col2 = st.columns(2)
+        with top_col1:
+            dot1_x = st.slider("X Position", 0, first_frame.shape[1]-1, first_frame.shape[1]//4, 1)
+        with top_col2:
+            dot1_y = st.slider("Y Position", 0, first_frame.shape[0]-1, first_frame.shape[0]//3, 1)
         
-        col1, col2 = st.columns(2)
-        with col1:
-            dot1_x = st.number_input("Top Dot X-coordinate", min_value=0, max_value=first_frame.shape[1]-1, step=1, value=first_frame.shape[1]//4)
-            dot1_y = st.number_input("Top Dot Y-coordinate", min_value=0, max_value=first_frame.shape[0]-1, step=1, value=first_frame.shape[0]//3)
+        st.write("### Bottom Marker (moving part)")
+        bottom_col1, bottom_col2 = st.columns(2)
+        with bottom_col1:
+            dot2_x = st.slider("X Position", 0, first_frame.shape[1]-1, first_frame.shape[1]//4, 1)
+        with bottom_col2:
+            dot2_y = st.slider("Y Position", 0, first_frame.shape[0]-1, 2*first_frame.shape[0]//3, 1)
         
-        with col2:
-            dot2_x = st.number_input("Bottom Dot X-coordinate", min_value=0, max_value=first_frame.shape[1]-1, step=1, value=first_frame.shape[1]//4)
-            dot2_y = st.number_input("Bottom Dot Y-coordinate", min_value=0, max_value=first_frame.shape[0]-1, step=1, value=2*first_frame.shape[0]//3)
-        
-        # Display the frame with the selected dots for confirmation
+        # Create a real-time visualization that updates as sliders change
         confirmation_frame = first_frame_rgb.copy()
         
-        # Draw the selected dots
-        cv2.circle(confirmation_frame, (dot1_x, dot1_y), 5, (0, 255, 0), -1)  # Red dot in RGB
-        cv2.circle(confirmation_frame, (dot2_x, dot2_y), 5, (255, 0, 0), -1)  # Green dot in RGB
+        # Draw the markers with larger size for better visibility
+        cv2.drawMarker(confirmation_frame, (dot1_x, dot1_y), (0, 255, 0), cv2.MARKER_CROSS, 20, 3)  # Green cross for top marker
+        cv2.drawMarker(confirmation_frame, (dot2_x, dot2_y), (255, 0, 0), cv2.MARKER_CROSS, 20, 3)  # Red cross for bottom marker
+        
+        # Draw the selected dots with circles
+        cv2.circle(confirmation_frame, (dot1_x, dot1_y), 10, (0, 255, 0), 2)  # Green circle for top marker
+        cv2.circle(confirmation_frame, (dot2_x, dot2_y), 10, (255, 0, 0), 2)  # Red circle for bottom marker
         
         # Draw line connecting dots
         cv2.line(confirmation_frame, (dot1_x, dot1_y), (dot2_x, dot2_y), (255, 255, 0), 2)
         
-        st.subheader("Confirmation")
-        st.write("Here are the dots you've selected:")
-        st.image(confirmation_frame, channels="RGB", use_column_width=True)
+        st.subheader("Preview with Selected Markers")
+        st.write("This preview updates in real-time as you adjust the sliders. Green represents the top (fixed) marker and red represents the bottom (moving) marker.")
+        st.image(confirmation_frame, channels="RGB", use_container_width=True)
         
         # Confirm and proceed
         if st.button("Confirm and Process Video"):
