@@ -330,8 +330,8 @@ if uploaded_file is not None:
         cols[2].metric("Resolution", f"{video_info['width']}x{video_info['height']}")
         cols[3].metric("Total Frames", f"{video_info['frame_count']}")
         
-        # Allow manual selection of dots in the first frame
-        status_text.text("Loading first frame for manual dot selection...")
+        # First attempt automatic detection followed by manual adjustment
+        status_text.text("Loading first frame and attempting automatic marker detection...")
         
         # Get the first frame of the video
         cap = cv2.VideoCapture(video_path)
@@ -344,30 +344,65 @@ if uploaded_file is not None:
                 os.unlink(video_path)
             st.stop()
         
+        # Try automatic marker detection
+        auto_detected_dots = video_processor.detect_dots(first_frame)
+        
         # Convert the frame from BGR to RGB for display
         first_frame_rgb = cv2.cvtColor(first_frame, cv2.COLOR_BGR2RGB)
         
-        # Display the frame for dot selection
-        st.subheader("Manual Marker Selection")
-        st.write("Use the sliders to position the markers precisely on the red and green squares:")
+        # Set initial dot positions based on auto-detection or defaults
+        if len(auto_detected_dots) >= 2:
+            # Sort by y-coordinate (top to bottom)
+            auto_detected_dots.sort(key=lambda p: p[1])
+            dot1_x_initial, dot1_y_initial = auto_detected_dots[0]
+            dot2_x_initial, dot2_y_initial = auto_detected_dots[1]
+            auto_detection_message = "✅ Markers automatically detected! You can adjust if needed."
+        else:
+            # Default positions if auto-detection failed
+            dot1_x_initial = first_frame.shape[1] // 4
+            dot1_y_initial = first_frame.shape[0] // 3
+            dot2_x_initial = first_frame.shape[1] // 4
+            dot2_y_initial = 2 * first_frame.shape[0] // 3
+            auto_detection_message = "❌ Automatic marker detection failed. Please position the markers manually."
         
-        # Display the first frame
-        st.image(first_frame_rgb, channels="RGB", use_container_width=True)
+        # Display the frame for marker selection
+        st.subheader("Marker Selection")
+        st.info(auto_detection_message)
+        st.write("Use the sliders to adjust the positions of the red and green square markers:")
+        
+        # Create a visualization with auto-detected markers
+        auto_detect_frame = first_frame_rgb.copy()
+        
+        if len(auto_detected_dots) >= 2:
+            # Highlight auto-detected markers
+            for i, (x, y) in enumerate(auto_detected_dots[:2]):
+                color = (0, 255, 0) if i == 0 else (255, 0, 0)  # Green for top, Red for bottom
+                cv2.drawMarker(auto_detect_frame, (x, y), color, cv2.MARKER_CROSS, 20, 3)
+                cv2.circle(auto_detect_frame, (x, y), 10, color, 2)
+            
+            # Draw line connecting dots
+            cv2.line(auto_detect_frame, 
+                   (auto_detected_dots[0][0], auto_detected_dots[0][1]), 
+                   (auto_detected_dots[1][0], auto_detected_dots[1][1]), 
+                   (255, 255, 0), 2)
+        
+        # Display the initial frame with detected markers
+        st.image(auto_detect_frame, channels="RGB", use_container_width=True)
         
         # Create containers for the top and bottom marker selection
-        st.write("### Top Marker (fixed part)")
+        st.write("### Top Marker (fixed part) - Adjust if needed")
         top_col1, top_col2 = st.columns(2)
         with top_col1:
-            dot1_x = st.slider("X Position", 0, first_frame.shape[1]-1, first_frame.shape[1]//4, 1)
+            dot1_x = st.slider("X Position", 0, first_frame.shape[1]-1, int(dot1_x_initial), 1)
         with top_col2:
-            dot1_y = st.slider("Y Position", 0, first_frame.shape[0]-1, first_frame.shape[0]//3, 1)
+            dot1_y = st.slider("Y Position", 0, first_frame.shape[0]-1, int(dot1_y_initial), 1)
         
-        st.write("### Bottom Marker (moving part)")
+        st.write("### Bottom Marker (moving part) - Adjust if needed")
         bottom_col1, bottom_col2 = st.columns(2)
         with bottom_col1:
-            dot2_x = st.slider("X Position", 0, first_frame.shape[1]-1, first_frame.shape[1]//4, 1)
+            dot2_x = st.slider("X Position", 0, first_frame.shape[1]-1, int(dot2_x_initial), 1)
         with bottom_col2:
-            dot2_y = st.slider("Y Position", 0, first_frame.shape[0]-1, 2*first_frame.shape[0]//3, 1)
+            dot2_y = st.slider("Y Position", 0, first_frame.shape[0]-1, int(dot2_y_initial), 1)
         
         # Create a real-time visualization that updates as sliders change
         confirmation_frame = first_frame_rgb.copy()
@@ -383,9 +418,20 @@ if uploaded_file is not None:
         # Draw line connecting dots
         cv2.line(confirmation_frame, (dot1_x, dot1_y), (dot2_x, dot2_y), (255, 255, 0), 2)
         
-        st.subheader("Preview with Selected Markers")
+        st.subheader("Preview with Adjusted Markers")
         st.write("This preview updates in real-time as you adjust the sliders. Green represents the top (fixed) marker and red represents the bottom (moving) marker.")
         st.image(confirmation_frame, channels="RGB", use_container_width=True)
+        
+        # Extra help for users
+        with st.expander("Need help with marker placement?"):
+            st.markdown("""
+            **Tips for accurate marker placement:**
+            - The green marker should be on the **fixed part** (top) of the suspension
+            - The red marker should be on the **moving part** (bottom) of the suspension
+            - Place markers exactly in the center of the colored squares
+            - Make sure the markers have good contrast against the background
+            - The distance between markers will be used to calculate suspension travel
+            """)
         
         # Confirm and proceed
         if st.button("Confirm and Process Video"):
@@ -402,7 +448,7 @@ if uploaded_file is not None:
                 progress_callback=lambda p: progress_bar.progress(p)
             )
         else:
-            st.warning("Please confirm your dot selection to process the video.")
+            st.warning("Please confirm your marker selection to process the video.")
             st.stop()
         
         # Check if tracking was successful

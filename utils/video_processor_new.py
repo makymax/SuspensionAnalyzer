@@ -69,30 +69,64 @@ class VideoProcessor:
         Returns:
             List of (x, y) coordinates of detected dots
         """
-        # Try both color-based detection and blob detection
-        dots_color = self.detect_dots_by_color(frame)
+        # Try all detection methods
+        dots_from_methods = []
         
-        # If color detection finds 2 dots, use those
-        if len(dots_color) >= 2:
-            return dots_color
-            
-        # Otherwise try blob detection
+        # Try detecting by color (red and green)
+        dots_color = self.detect_dots_by_color(frame)
+        if dots_color:
+            dots_from_methods.append(dots_color)
+        
+        # Try detecting square shapes
+        dots_square = self.detect_square_markers(frame)
+        if dots_square:
+            dots_from_methods.append(dots_square)
+        
+        # Try blob detection as a fallback
         dots_blob = self.detect_dots_by_blob(frame)
-        if len(dots_blob) >= 2:
-            return dots_blob
+        if dots_blob:
+            dots_from_methods.append(dots_blob)
+        
+        # Choose the best method's results (one with exactly 2 dots, or most promising)
+        for method_dots in dots_from_methods:
+            if len(method_dots) == 2:
+                return method_dots
+        
+        # If no method got exactly 2 dots, combine and filter
+        all_dots = []
+        for method_dots in dots_from_methods:
+            all_dots.extend(method_dots)
+        
+        # Remove duplicates
+        unique_dots = []
+        for dot in all_dots:
+            is_duplicate = False
+            for existing_dot in unique_dots:
+                # If dots are very close, consider them duplicates
+                dist = np.sqrt((dot[0] - existing_dot[0])**2 + (dot[1] - existing_dot[1])**2)
+                if dist < self.min_dot_size:
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                unique_dots.append(dot)
+        
+        # If we have more than 2 dots, take the best pair (most distant for better measurements)
+        if len(unique_dots) > 2:
+            max_dist = 0
+            best_pair = None
             
-        # Combine results if both methods found some dots but not enough
-        combined_dots = dots_color + dots_blob
-        if len(combined_dots) >= 2:
-            # Keep unique dots only
-            unique_dots = []
-            for dot in combined_dots:
-                if dot not in unique_dots:
-                    unique_dots.append(dot)
-            return unique_dots
+            for i in range(len(unique_dots)):
+                for j in range(i + 1, len(unique_dots)):
+                    dist = np.sqrt((unique_dots[i][0] - unique_dots[j][0])**2 + 
+                                   (unique_dots[i][1] - unique_dots[j][1])**2)
+                    if dist > max_dist:
+                        max_dist = dist
+                        best_pair = [unique_dots[i], unique_dots[j]]
             
-        # If still not enough dots, return whatever we have
-        return combined_dots
+            if best_pair:
+                return best_pair
+        
+        return unique_dots
     
     def detect_dots_by_color(self, frame: np.ndarray) -> List[Tuple[int, int]]:
         """
@@ -146,6 +180,73 @@ class VideoProcessor:
                 return final_dots
         
         return all_dots
+        
+    def detect_square_markers(self, frame: np.ndarray) -> List[Tuple[int, int]]:
+        """
+        Detect square-shaped markers of red and green color.
+        """
+        # Convert to HSV color space for better color detection
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        
+        # Define color ranges for red and green with very lenient thresholds
+        # Red is tricky in HSV as it wraps around 0/180, so we need two ranges
+        lower_red1 = np.array([0, 50, 50])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([160, 50, 50])
+        upper_red2 = np.array([180, 255, 255])
+        
+        lower_green = np.array([35, 50, 50])
+        upper_green = np.array([85, 255, 255])
+        
+        # Create masks for each color
+        red_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+        red_mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+        red_mask = cv2.bitwise_or(red_mask1, red_mask2)
+        
+        green_mask = cv2.inRange(hsv, lower_green, upper_green)
+        
+        # Combine masks if needed
+        all_mask = cv2.bitwise_or(red_mask, green_mask)
+        
+        # Clean up masks with morphological operations
+        kernel = np.ones((3, 3), np.uint8)
+        mask_cleaned = cv2.morphologyEx(all_mask, cv2.MORPH_OPEN, kernel)
+        mask_cleaned = cv2.morphologyEx(mask_cleaned, cv2.MORPH_CLOSE, kernel)
+        
+        # Find contours
+        contours, _ = cv2.findContours(mask_cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Look for square-like contours
+        square_centers = []
+        for contour in contours:
+            # Filter by area
+            area = cv2.contourArea(contour)
+            min_area = 25  # Minimum area of squares to detect (5x5 pixels)
+            max_area = 400  # Maximum area (20x20 pixels)
+            
+            if min_area <= area <= max_area:
+                # Approximate the contour to a polygon
+                epsilon = 0.1 * cv2.arcLength(contour, True)
+                approx = cv2.approxPolyDP(contour, epsilon, True)
+                
+                # If it has 4 vertices, it might be a square or rectangle
+                if len(approx) == 4:
+                    # Check if it's somewhat square (not a long rectangle)
+                    x, y, w, h = cv2.boundingRect(approx)
+                    aspect_ratio = float(w) / h
+                    
+                    if 0.7 <= aspect_ratio <= 1.3:  # Allow some tolerance from perfect square
+                        # Calculate centroid
+                        M = cv2.moments(contour)
+                        if M["m00"] > 0:
+                            cx = int(M["m10"] / M["m00"])
+                            cy = int(M["m01"] / M["m00"])
+                            
+                            # Check which color this square is
+                            # We'll just add it to the results and later pick the best pair
+                            square_centers.append((cx, cy))
+        
+        return square_centers
     
     def find_dots_in_mask(self, mask: np.ndarray) -> List[Tuple[int, int]]:
         """
