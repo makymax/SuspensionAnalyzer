@@ -9,7 +9,7 @@ from PIL import Image
 import time
 import datetime
 
-from utils.video_processor import VideoProcessor
+from utils.video_processor_new import VideoProcessor
 from utils.data_analyzer import analyze_suspension_data
 from utils.recommendations import get_suspension_recommendations
 from utils.database import (save_analysis_session, get_analysis_sessions, 

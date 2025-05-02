@@ -61,7 +61,7 @@ class VideoProcessor:
     
     def detect_dots(self, frame: np.ndarray) -> List[Tuple[int, int]]:
         """
-        Detect dots in a frame using multiple methods for greater robustness.
+        Detect dots in a frame using multiple methods for robustness.
         
         Args:
             frame: Input video frame
@@ -69,31 +69,47 @@ class VideoProcessor:
         Returns:
             List of (x, y) coordinates of detected dots
         """
-        # Try both color-based detection and blob detection methods
-        dots = self.detect_dots_by_color(frame)
+        # Try both color-based detection and blob detection
+        dots_color = self.detect_dots_by_color(frame)
         
-        # If color detection doesn't find 2 dots, try blob detection
-        if len(dots) < 2:
-            dots = self.detect_dots_by_blob(frame)
+        # If color detection finds 2 dots, use those
+        if len(dots_color) >= 2:
+            return dots_color
             
-        return dots
+        # Otherwise try blob detection
+        dots_blob = self.detect_dots_by_blob(frame)
+        if len(dots_blob) >= 2:
+            return dots_blob
             
+        # Combine results if both methods found some dots but not enough
+        combined_dots = dots_color + dots_blob
+        if len(combined_dots) >= 2:
+            # Keep unique dots only
+            unique_dots = []
+            for dot in combined_dots:
+                if dot not in unique_dots:
+                    unique_dots.append(dot)
+            return unique_dots
+            
+        # If still not enough dots, return whatever we have
+        return combined_dots
+    
     def detect_dots_by_color(self, frame: np.ndarray) -> List[Tuple[int, int]]:
         """
-        Detect dots using color thresholding.
+        Detect red and green dots using color thresholding.
         """
         # Convert to HSV color space for better color detection
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         
-        # Define color ranges for red and green with more lenient thresholds
+        # Define color ranges for red and green with very lenient thresholds
         # Red is tricky in HSV as it wraps around 0/180, so we need two ranges
-        lower_red1 = np.array([0, 50, 50])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 50, 50])
+        lower_red1 = np.array([0, 30, 30])
+        upper_red1 = np.array([15, 255, 255])
+        lower_red2 = np.array([160, 30, 30])
         upper_red2 = np.array([180, 255, 255])
         
-        lower_green = np.array([35, 50, 50])
-        upper_green = np.array([85, 255, 255])
+        lower_green = np.array([30, 30, 30])
+        upper_green = np.array([90, 255, 255])
         
         # Create masks for each color
         red_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
@@ -102,23 +118,53 @@ class VideoProcessor:
         
         green_mask = cv2.inRange(hsv, lower_green, upper_green)
         
-        # Combine masks to get all dots
-        combined_mask = cv2.bitwise_or(red_mask, green_mask)
+        # Process each mask separately to find red and green dots
+        red_dots = self.find_dots_in_mask(red_mask)
+        green_dots = self.find_dots_in_mask(green_mask)
         
+        # Combine the dots
+        all_dots = red_dots + green_dots
+        
+        # If we have exactly 2 dots, one red and one green, return them
+        if len(red_dots) == 1 and len(green_dots) == 1:
+            return all_dots
+            
+        # Otherwise, if we have more dots, select the most likely pair
+        if len(all_dots) > 2:
+            # Find the dots that are most distant from each other
+            max_dist = 0
+            final_dots = []
+            
+            for i in range(len(all_dots)):
+                for j in range(i + 1, len(all_dots)):
+                    dist = np.sqrt((all_dots[i][0] - all_dots[j][0])**2 + (all_dots[i][1] - all_dots[j][1])**2)
+                    if dist > max_dist:
+                        max_dist = dist
+                        final_dots = [all_dots[i], all_dots[j]]
+            
+            if final_dots:
+                return final_dots
+        
+        return all_dots
+    
+    def find_dots_in_mask(self, mask: np.ndarray) -> List[Tuple[int, int]]:
+        """
+        Find dots in a binary mask.
+        """
         # Apply morphological operations to clean up the mask
-        kernel = np.ones((5,5), np.uint8)
-        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
-        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+        kernel = np.ones((3, 3), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         
         # Find contours
-        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         dots = []
         for contour in contours:
             # Filter contours by size
             area = cv2.contourArea(contour)
-            min_area = np.pi * (self.min_dot_size ** 2)
-            max_area = np.pi * (self.max_dot_size ** 2)
+            min_area = np.pi * (self.min_dot_size ** 2) * 0.5  # More lenient
+            max_area = np.pi * (self.max_dot_size ** 2) * 2.0  # More lenient
             
             if min_area <= area <= max_area:
                 # Calculate centroid
@@ -127,129 +173,43 @@ class VideoProcessor:
                     cx = int(M["m10"] / M["m00"])
                     cy = int(M["m01"] / M["m00"])
                     dots.append((cx, cy))
-        
-        # We need exactly 2 dots
-        if len(dots) >= 2:
-            # If more than 2 dots found, take the 2 most distant ones
-            if len(dots) > 2:
-                max_dist = 0
-                final_dots = None
-                
-                for i in range(len(dots)):
-                    for j in range(i + 1, len(dots)):
-                        dist = np.sqrt((dots[i][0] - dots[j][0])**2 + (dots[i][1] - dots[j][1])**2)
-                        if dist > max_dist:
-                            max_dist = dist
-                            final_dots = [dots[i], dots[j]]
-                
-                return final_dots
-            return dots
-        
-        return []
+                    
+        return dots
         
     def detect_dots_by_blob(self, frame: np.ndarray) -> List[Tuple[int, int]]:
         """
-        Detect dots using blob detection which is more general.
+        Detect dots using blob detection for more general detection.
         """
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        # Apply threshold to get binary image
+        # Try different thresholds for better detection
+        dots = []
+        
+        # Try regular thresholding first
         _, binary = cv2.threshold(gray, self.threshold, 255, cv2.THRESH_BINARY_INV)
+        dots.extend(self.find_dots_in_mask(binary))
         
-        # Try adaptive thresholding if regular thresholding doesn't work
-        if np.sum(binary) < 100:  # If almost no pixels are detected
-            binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                         cv2.THRESH_BINARY_INV, 11, 2)
+        # If not enough dots, try adaptive thresholding
+        if len(dots) < 2:
+            adaptive_binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                             cv2.THRESH_BINARY_INV, 11, 2)
+            dots.extend(self.find_dots_in_mask(adaptive_binary))
             
-        # Apply morphological operations to clean up the binary image
-        kernel = np.ones((5,5), np.uint8)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        
-        # Find contours
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        dots = []
-        for contour in contours:
-            # Filter contours by size
-            area = cv2.contourArea(contour)
-            min_area = np.pi * (self.min_dot_size ** 2)
-            max_area = np.pi * (self.max_dot_size ** 2)
-            
-            if min_area <= area <= max_area:
-                # Calculate centroid
-                M = cv2.moments(contour)
-                if M["m00"] > 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    dots.append((cx, cy))
-        
-        return dots
-        
-    def detect_dots_by_color(self, frame: np.ndarray) -> List[Tuple[int, int]]:
-        """
-        Detect dots using color thresholding.
-        """
-        # Convert to HSV color space for better color detection
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
-        # Define color ranges for red and green with more lenient thresholds
-        # Red is tricky in HSV as it wraps around 0/180, so we need two ranges
-        lower_red1 = np.array([0, 50, 50])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 50, 50])
-        upper_red2 = np.array([180, 255, 255])
-        
-        lower_green = np.array([35, 50, 50])
-        upper_green = np.array([85, 255, 255])
-        
-        # Create masks for each color
-        red_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-        red_mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-        red_mask = cv2.bitwise_or(red_mask1, red_mask2)
-        
-        green_mask = cv2.inRange(hsv, lower_green, upper_green)
-        
-        # Combine masks to get all dots
-        combined_mask = cv2.bitwise_or(red_mask, green_mask)
-        
-        # Find contours
-        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        dots = []
-        for contour in contours:
-            # Filter contours by size
-            area = cv2.contourArea(contour)
-            min_area = np.pi * (self.min_dot_size ** 2)
-            max_area = np.pi * (self.max_dot_size ** 2)
-            
-            if min_area <= area <= max_area:
-                # Calculate centroid
-                M = cv2.moments(contour)
-                if M["m00"] > 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    dots.append((cx, cy))
-        
-        # We need exactly 2 dots
-        if len(dots) >= 2:
-            # If more than 2 dots found, take the 2 most distant ones
-            if len(dots) > 2:
-                max_dist = 0
-                final_dots = None
+        # Remove duplicates
+        unique_dots = []
+        for dot in dots:
+            is_duplicate = False
+            for existing_dot in unique_dots:
+                # If dots are very close, consider them duplicates
+                dist = np.sqrt((dot[0] - existing_dot[0])**2 + (dot[1] - existing_dot[1])**2)
+                if dist < self.min_dot_size:
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                unique_dots.append(dot)
                 
-                for i in range(len(dots)):
-                    for j in range(i + 1, len(dots)):
-                        dist = np.sqrt((dots[i][0] - dots[j][0])**2 + (dots[i][1] - dots[j][1])**2)
-                        if dist > max_dist:
-                            max_dist = dist
-                            final_dots = [dots[i], dots[j]]
-                
-                return final_dots
-            return dots
-        
-        return []
+        return unique_dots
     
     def process_video(self, video_path: str, 
                       initial_distance_mm: float = 100.0,
@@ -280,15 +240,14 @@ class VideoProcessor:
         suspension_data = []
         sample_frames = []
         
-        # Set pixel to mm conversion (can be adjusted based on known measurements)
-        # For now we'll use a reasonable default value
-        self.pixel_to_mm_ratio = 0.5  # 1 pixel = 0.5 mm (will be calibrated below)
+        # Set initial pixel to mm ratio (will be calibrated below)
+        self.pixel_to_mm_ratio = 0.5
         
         # Process the first frame to establish dot positions
         ret, frame = cap.read()
         if not ret:
             cap.release()
-            return None, []
+            return [], []
         
         # Detect dots in the first frame
         dots = self.detect_dots(frame)
@@ -296,7 +255,7 @@ class VideoProcessor:
         # Need at least 2 dots to track
         if len(dots) < 2:
             cap.release()
-            return None, []
+            return [], []
         
         # Sort dots by y-coordinate (top dot first, bottom dot second)
         dots.sort(key=lambda p: p[1])
