@@ -141,9 +141,14 @@ class VideoProcessor:
         upper_red1 = np.array([15, 255, 255])
         lower_red2 = np.array([160, 30, 30])
         upper_red2 = np.array([180, 255, 255])
-        
-        lower_green = np.array([30, 30, 30])
-        upper_green = np.array([90, 255, 255])
+
+        #Blue
+        lower_blue = np.array([100,50,50])
+        upper_blue = np.array([140,255,255])
+
+        #Green
+        lower_green = np.array([36, 0, 0])
+        upper_green = np.array([86, 255, 255])
         
         # Create masks for each color
         red_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
@@ -151,9 +156,10 @@ class VideoProcessor:
         red_mask = cv2.bitwise_or(red_mask1, red_mask2)
         
         green_mask = cv2.inRange(hsv, lower_green, upper_green)
+        blue_mask = cv2.inRange(hsv,lower_blue,upper_blue)
         
         # Process each mask separately to find red and green dots
-        red_dots = self.find_dots_in_mask(red_mask)
+        red_dots = self.find_dots_in_mask(blue_mask) #changed to blue mask
         green_dots = self.find_dots_in_mask(green_mask)
         
         # Combine the dots
