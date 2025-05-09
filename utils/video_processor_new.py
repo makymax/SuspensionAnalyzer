@@ -137,9 +137,9 @@ class VideoProcessor:
         
         # Define color ranges for red and green with very lenient thresholds
         # Red is tricky in HSV as it wraps around 0/180, so we need two ranges
-        lower_red1 = np.array([0, 30, 30])
-        upper_red1 = np.array([15, 255, 255])
-        lower_red2 = np.array([160, 30, 30])
+        lower_red1 = np.array([0, 100, 100])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([160, 100, 100])
         upper_red2 = np.array([180, 255, 255])
 
         #Blue
